@@ -91,12 +91,17 @@ def extract_spotify_liked_songs(context):
                     artists_by_id[artist['id']] = [artist['name']]
                 url = "https://api.spotify.com/v1/artists/" + artist['id']
                 response2 = requests.get(url, headers=headers)
-                if response2.status_code == 200:
-                    artist = response2.json()
-                    g_n = artist['genres']
-                    artist_genres.update(g_n)
+                if hasattr(response2, 'status_code'):
+                    if response2.status_code == 200:
+                        artist = response2.json()
+                        g_n = artist['genres']
+                        artist_genres.update(g_n)
+                    elif response2.status_code == 429:
+                        print("Error: Too many requests")
+                    else:
+                        print(f"Error: {response2.status_code}")
                 else:
-                    artist_genres.update([])
+                    print("Error: Unable to retrieve artist information")
             artist_list.append(', '.join(artist_names)) #artist name
             genre_list.append(list(artist_genres))    
         for artistid, artist_names in artists_by_id.items():
@@ -186,8 +191,7 @@ def load_to_postgres(context, df_original, df_date, df_artists_final, df_unique_
     df_features.to_sql('fact_track_features', engine, schema='master_sp', if_exists='replace', index=False)
     context.log.info("load completed.")
 
-    
-
+  
 '''
 client_id = os.environ.get("SP_CLIENT_ID")
 client_secret = os.environ.get("SP_CLIENT_SECRET")
@@ -212,7 +216,7 @@ except Exception as e:
 '''
 
 @op
-def load_to_postgres(context,df_original, df_date, df_artists_final, df_unique_genres, df_features):
+def load_to_postgres(,df_original, df_date, df_artists_final, df_unique_genres, df_features):
     connection = engine.connect()
     connection.execute("drop table if exists master_sp.dim_details_large cascade;")
     #dim_everythin_part_one
@@ -225,9 +229,128 @@ def load_to_postgres(context,df_original, df_date, df_artists_final, df_unique_g
     df_unique_genres.to_sql('dim_track_genres', engine, schema='master_sp', if_exists='replace', index=False)
     #fact_artist
     df_features.to_sql('fact_track_features', engine, schema='master_sp', if_exists='replace', index=False)
-    context.log.info("load completed.")
+    .log.info("load completed.")
 
 
+    
+
+limit = 20
+offset = 0
+all_items = []
+add = []
+artists_by_id = {}
+song_list =[]
+artist_list = []
+artist_id = []
+album_list=[]
+track_ids=[]
+genre_list = []
+track_features = []
+artist_list_new=[]
+auth_manager = SpotifyOAuth(client_id=client_id,
+        client_secret=client_secret,
+           redirect_uri=redirect_uri,
+           scope=scope)
+access_token = auth_manager.get_access_token(as_dict=False)
+headers = {
+    'Authorization': 'Bearer {}'.format(access_token)
+}
+response = requests.get('https://api.spotify.com/v1/me/tracks', headers=headers).json()
+total = response['total']
+#total
+print("Total 'liked songs' found:", total)
+
+for offset in range(0, total, 20):
+    url = "https://api.spotify.com/v1/me/tracks?offset="+str(offset) + "&limit=20" 
+    response1 = requests.get(url, headers=headers).json()
+    getter = response1['items']
+    all_items.extend(getter)
+
+for j in all_items:
+    dateAddd = j['added_at'] 
+        #dateAdd = dateAddd[0:10]#added date
+    add.append(dateAddd)
+    s_n = [j['track']['name']]
+    Id = [j['track']['id']] #id
+    identif = ' '.join(str(v) for v in Id) 
+    track_ids.append(identif)
+    song_name = ','.join(str(v) for v in s_n) 
+    song_list.append(song_name) #tracks
+    album = [j['track']['album']['name']]
+    album1 = ' '.join(str(v) for v in album) 
+    album_list.append(album1) #albums
+    artists = j['track']['album']['artists']
+    artist_names = []
+    artist_ids = []
+    artist_genres = set()
+    
+for artist in artists:
+    artist_names.append(artist['name'])
+    artist_ids.append(artist['id'])
+    if artist['id'] in artists_by_id:
+        if artist['name'] not in artists_by_id[artist['id']]:
+            artists_by_id[artist['id']].append(artist['name'])
+    else:
+        artists_by_id[artist['id']] = [artist['name']]
+    url = "https://api.spotify.com/v1/artists/" + artist['id']
+    response2 = requests.get(url, headers=headers)
+    
+if response2.status_code == 200:
+    artist = response2.json()
+    g_n = artist['genres']
+    artist_genres.update(g_n)
+else:
+    print(f"An error occurred: {str(e)}")
+
+if hasattr(response2, 'status_code'):
+    if response2.status_code == 200:
+        artist = response2.json()
+        g_n = artist['genres']
+        artist_genres.update(g_n)
+    elif response2.status_code == 429:
+        print("Error: Too many requests")
+    else:
+        print(f"Error: {response2.status_code}")
+else:
+    print("Error: Unable to retrieve artist information")
+
+
+
+artist_list.append(', '.join(artist_names)) #artist name
+genre_list.append(list(artist_genres))    
+
+
+
+
+
+for artistid, artist_names in artists_by_id.items():
+    artist_id.append(artistid)
+    artist_list_new.append(artist_names)
+
+while len(genre_list) < len(song_list):
+    genre_list.append([])# Ensure that the genre list has the same number of records as the other lists
+
+
+url = "https://api.spotify.com/v1/audio-features/"
+
+for i in track_ids:
+    urls = url + i
+    res = requests.get(urls, i, headers=headers).json()
+    dance_score = [res['id'],res['danceability'], res['energy'],res['key']
+    ,res['loudness'],res['mode'],res['speechiness'],res['acousticness']
+    ,res['instrumentalness'],res['liveness'],res['valence'], res['tempo']]
+    track_features.append(dance_score)
+
+
+
+
+
+
+
+
+except Exception as e:
+    print(f"An error occurred: {str(e)}")
+return song_list, album_list, genre_list, track_features, add, track_ids, artist_id, artist_list_new
 '''  
 '''
 
@@ -236,7 +359,7 @@ def load_to_postgres(context,df_original, df_date, df_artists_final, df_unique_g
          "df_artists_final":  Out(),
          "df_unique_genres":  Out(),
          "df_features":  Out()})
-def dataframes_transform(context,song_list, album_list, genre_list, track_features, add, track_ids, artist_id, artist_list_new):
+def dataframes_transform(,song_list, album_list, genre_list, track_features, add, track_ids, artist_id, artist_list_new):
     df_original = pd.DataFrame({"track_id": track_ids,"track_list":song_list,"album_name" : album_list})
     ##Date###manipulating date and time    
     df_date = pd.DataFrame({"datetime" : pd.to_datetime(add)})
@@ -248,7 +371,7 @@ def dataframes_transform(context,song_list, album_list, genre_list, track_featur
     df_date["datetime_track_id_hash"] = df_date["datetime_track_id"].apply(lambda x: hashlib.sha256(x.encode()).hexdigest())
     df_date = df_date.drop(columns=['datetime_track_id'])
     df_date.set_index("datetime_track_id_hash", inplace=True)
-    context.log.info("Transformed DATE")
+    .log.info("Transformed DATE")
     ###artist##
     #separating the artists and merging the df_artist to final-1 df
     df_artistsid = pd.DataFrame({"artist_id": artist_id })
@@ -261,7 +384,7 @@ def dataframes_transform(context,song_list, album_list, genre_list, track_featur
     unique_artistname = df_artists['artist_name'].unique()
     df_unique_artistname = pd.DataFrame({'artist_unique_name': unique_artistname})
     df_artists_final = pd.concat([df_unique_artistsid, df_unique_artistname], axis=1)
-    context.log.info("Transformed ARTISTS")
+    .log.info("Transformed ARTISTS")
     #####################genre#######################
     #add columns to df_genre(separate table for genre)
     #max colmns
@@ -269,14 +392,14 @@ def dataframes_transform(context,song_list, album_list, genre_list, track_featur
     df_genre_all = df_genre_all.explode('genre').reset_index(drop=True)
     unique_genres = df_genre_all['genre'].unique()
     df_unique_genres = pd.DataFrame({'genre': unique_genres})
-    context.log.info("Transformed GENRES")
+    .log.info("Transformed GENRES")
     #df_unique_genres.insert(loc=0, column='track_name', value=e.song_list) # Add the 'id' column to df_artists
     #(separate table for features)
     df_features = pd.DataFrame(track_features)
     df_features.columns=['track_id','danceability','energy','key','loudness','mode','speechiness',\
                          'acousticness', 'instrumentalness','liveness','valence', 'tempo']
-    context.log.info("Transformed FEATURES")
-    context.log.info("Transformed completed.")
+    .log.info("Transformed FEATURES")
+    .log.info("Transformed completed.")
     #df_features.insert(loc=0, column='track_list', value=song_list) # Add the 'id' column to df_artists
     yield Output(df_original, "df_original")
     yield Output(df_date, "df_date")
@@ -284,21 +407,5 @@ def dataframes_transform(context,song_list, album_list, genre_list, track_featur
     yield Output(df_unique_genres, "df_unique_genres")
     yield Output(df_features, "df_features")
 
-
-    
-
-        
-@graph
-def my_pipeline():
-    song_list, album_list, genre_list, track_features, add, track_ids, artist_id, artist_list_new = extract_spotify_liked_songs()
-    df_original, df_date, df_artists_final, df_unique_genres, df_features = dataframes_transform(song_list=song_list,
-                   album_list=album_list,
-                   genre_list=genre_list,
-                   track_features=track_features,
-                   add=add,
-                   track_ids=track_ids,
-                   artist_id=artist_id,
-                   artist_list_new=artist_list_new)
-    load_to_postgres(df_original, df_date, df_artists_final, df_unique_genres, df_features)
 
 '''
