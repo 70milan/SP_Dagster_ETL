@@ -91,17 +91,12 @@ def extract_spotify_liked_songs(context):
                     artists_by_id[artist['id']] = [artist['name']]
                 url = "https://api.spotify.com/v1/artists/" + artist['id']
                 response2 = requests.get(url, headers=headers)
-                if hasattr(response2, 'status_code'):
-                    if response2.status_code == 200:
-                        artist = response2.json()
-                        g_n = artist['genres']
-                        artist_genres.update(g_n)
-                    elif response2.status_code == 429:
-                        print("Error: Too many requests")
-                    else:
-                        print(f"Error: {response2.status_code}")
+                if response2.status_code == 200:
+                    artist = response2.json()
+                    g_n = artist['genres']
+                    artist_genres.update(g_n)
                 else:
-                    print("Error: Unable to retrieve artist information")
+                    print(f"Error: {response2.status_code}")
             artist_list.append(', '.join(artist_names)) #artist name
             genre_list.append(list(artist_genres))    
         for artistid, artist_names in artists_by_id.items():
@@ -191,7 +186,9 @@ def load_to_postgres(context, df_original, df_date, df_artists_final, df_unique_
     df_features.to_sql('fact_track_features', engine, schema='master_sp', if_exists='replace', index=False)
     context.log.info("load completed.")
 
-  
+
+
+
 '''
 client_id = os.environ.get("SP_CLIENT_ID")
 client_secret = os.environ.get("SP_CLIENT_SECRET")
